@@ -1,24 +1,61 @@
 import os
+import time
+import requests
+from bs4 import BeautifulSoup
 
 application_name: str = "EIS Grade Notifier"
+student_name: str = ""
+student_honorific: str = ""
+website_url: str = "https://eis.epoka.edu.al/login"
+student_page_url: str = "https://eis.epoka.edu.al/student/"
+grade_url: str = "https://eis.epoka.edu.al/student/interimGrades"
+remember: bool = False
+mobile_notification: bool = False
+desktop_notification: bool = False
+logged_in: bool = False
+
+
+# Display about
+def display_about():
+    clear()
+    print("About")
+    print("""
+    This application was created by:
+    - Detjon Mataj
+    
+    The main reason for creating this application is to help students keep track of their grades.
+    After finishing the exams, students wait impatiently for the results to be published.
+    They will be notified in real time, so they can check their grades as soon as they are available.
+    Don't worry no needed to refresh the page anymore :).
+    
+    This application is not intended to be used by anyone other than the students of the Epoka University Students.
+    """)
+
+    input("\nPress enter to return to the main menu.")
+    display_main_menu()
 
 
 # Display Main Menu
 def display_main_menu():
+    clear()
     print("Main Menu\n")
     print("1. Login")
     print("2. Help")
-    print("3. Exit")
+    print("3. About")
+    print("0. Exit")
     while True:
         choice = input("Enter your choice: ")
         if choice == "1":
             clear()
-            print("Logged in")
+            login()
             break
         elif choice == "2":
             display_help()
             break
         elif choice == "3":
+            display_about()
+            break
+        elif choice == "0":
             print("Goodbye")
             break
         else:
@@ -30,6 +67,227 @@ def clear():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 
+def get_response(url: str, session):
+    return session.get(url)
+
+
+def validate_session(status_code, soup):
+    if status_code == 200 and soup.find('h3', {'class': 'page-title'}):
+        return True
+    else:
+        return False
+
+
+def get_course_data(session):
+    courses_data: list = []
+    response = get_response(grade_url, session)
+    soup = BeautifulSoup(response.text, "html.parser")
+    # Get all courses and their grades
+    courses_soup = soup.find_all('div', {'class': 'row'})[2]
+    for i, course_soup in enumerate(courses_soup.find_all('div', {'class': 'portlet box purple'})):
+        course_name = course_soup.find('div', {'class': 'caption'}).text.strip()
+        table_headers = course_soup.find('table', {'class': 'table table-striped table-hover interim-grades-table'}) \
+            .find('thead').find_all('th')
+        table_rows = course_soup.find('table', {'class': 'table table-striped table-hover interim-grades-table'}) \
+            .find('tbody').find_all('tr')
+        assignments: list = []
+        for row in table_rows:
+            assigment: dict = {}
+            for j, table_header in enumerate(table_headers):
+                assigment[table_header.text.strip().replace("\n", "")] = row.find_all('td')[j].text.strip() \
+                    .replace("\n", "").replace(" %", "%")
+            assignments.append(assigment)
+        course_notes = list(
+            map(lambda x: x.strip(), course_soup.find('div', {'class': 'note note-info'}).find('p')
+                .text.strip().replace("\n", "").split("|")))
+
+        course_notes = list(map(lambda x: x.split(":"), course_notes))
+        course_notes = dict(map(lambda x: (x[0].strip().replace("\n", ""), x[1].strip().replace("\n", "")),
+                                course_notes))
+        courses_data.append(
+            {
+                "course_name": course_name,
+                "assignments": assignments,
+                "course_notes": course_notes
+            }
+        )
+
+    return courses_data
+
+
+def display_course_data(course_data):
+    print(f"Course: {course_data['course_name']}")
+
+    # Max key size
+    max_key_size = max(map(lambda z: len(z), course_data['assignments'][0].keys())) + 1
+    total_size = max_key_size + len(course_data['assignments'][0]["Date/Time"]) + 2
+
+    print("\n\tCourse Assignments:")
+    # print all assignments
+    print("\t" + "-" * total_size)
+    for x, assignment in enumerate(course_data['assignments']):
+        for key, value in assignment.items():
+            print(f"\t{key:<{max_key_size}}: {value}")
+        print("\t" + "-" * total_size)
+
+    print("\n\n\tOverall course results:")
+    max_key_size += 1
+    print("\t" + "-" * total_size)
+    for key, value in course_data['course_notes'].items():
+        print(f"\t{key:<{max_key_size}}: {value}")
+    print("\t" + "-" * total_size)
+
+
+def view_grades(session):
+    print("View Grades")
+    course_data: list = get_course_data(session)
+    print("For which course do you want to view grades?")
+    for i, course in enumerate(course_data):
+        print(f"{i + 1}. {course['course_name']}")
+    print("0. Go back")
+    while True:
+        course_choice = input("Enter your choice: ")
+        if course_choice == "0":
+            dashboard(session)
+            break
+        elif course_choice.isdigit() and int(course_choice) <= len(course_data):
+            clear()
+            display_course_data(course_data[int(course_choice) - 1])
+            while True:
+                print("1. Refresh")
+                print("2. Back")
+                print("0. Return to Dashboard")
+                choice = input("Enter your choice: ")
+                if choice == "1":
+                    clear()
+                    course_data = get_course_data(session)
+                    display_course_data(course_data[int(course_choice) - 1])
+                    continue
+                if choice == "2":
+                    clear()
+                    view_grades(session)
+                    break
+                elif choice == "0":
+                    clear()
+                    dashboard(session)
+                    break
+                else:
+                    print("Invalid choice")
+                    continue
+            break
+        else:
+            print("Invalid choice")
+            continue
+
+
+def logout():
+    global logged_in
+    logged_in = False
+    print("Logout")
+    clear()
+    display_main_menu()
+
+
+def refresh(session):
+    pass
+
+
+def dashboard_menu(session):
+    global desktop_notification
+    global mobile_notification
+    print(f"Dashboard Menu")
+    print(f"1. View Grades")
+    print(f"2. Logout")
+    print(f"3. Desktop Notification {'(ON)' if desktop_notification else '(OFF)'}")
+    print(f"4. Mobile Notification{'(ON)' if mobile_notification else '(OFF)'}")
+    print(f"5. Refresh")
+    print(f"0. Exit")
+    while True:
+        choice = input("Enter your choice: ")
+        if choice == "1":
+            clear()
+            view_grades(session)
+            break
+        elif choice == "2":
+            clear()
+            logout()
+            break
+        elif choice == "3":
+            print("Not implemented")
+            time.sleep(1)
+            clear()
+            # desktop_notification = not desktop_notification
+            dashboard_menu(session)
+            break
+        elif choice == "4":
+            print("Not implemented")
+            time.sleep(1)
+            clear()
+            # mobile_notification = not mobile_notification
+            dashboard_menu(session)
+            break
+        elif choice == "5":
+            refresh(session)
+            clear()
+            dashboard(session)
+            break
+        elif choice == "0":
+            print("Goodbye")
+            break
+        else:
+            print("Invalid choice")
+            continue
+
+
+def dashboard(session):
+    clear()
+    print(f"Welcome {student_honorific}. {student_name}!")
+    dashboard_menu(session)
+
+
+def login():
+    global logged_in
+    print("Login to your account")
+    print("If you don't know where to get your cookie, please go back and check help section:")
+    if input("Do you have a cookie? (y/n): ") == "y":
+        cookie = input("Enter PHPSESSID cookie: ")
+        session, status_code, soup = create_session(cookie)
+        if validate_session(status_code, soup):
+            clear()
+            print("Login successful")
+            logged_in = True
+            time.sleep(1)
+            clear()
+            dashboard(session)
+        else:
+            clear()
+            print("Login failed\n")
+            login()
+    else:
+        clear()
+        display_main_menu()
+
+
+def remember_me():
+    pass
+
+
+def create_session(cookie: str):
+    global student_name
+    global student_honorific
+    session = requests.Session()
+    session.cookies.set("PHPSESSID", cookie, domain="eis.epoka.edu.al")
+    response = get_response(grade_url, session)
+    r = get_response(student_page_url, session)
+    if r and r.status_code == 200:
+        page_title = BeautifulSoup(r.text, "html.parser").find('h3', {'class': 'page-title'})
+        if page_title:
+            metadata = page_title.text.strip().replace("\n", "").replace("Welcome ", "")
+            student_honorific = metadata.split(". ")[0].strip()
+            student_name = metadata.split(". ")[1].strip()
+    return session, response.status_code, BeautifulSoup(response.text, "html.parser")
+
+
 # Display Help Menu
 def display_help():
     print("Help Menu\n\n")
@@ -38,21 +296,15 @@ def display_help():
     Then you need to get your PHPSESSID cookie.\n
     You can do this by using this chrome extension:\n
     https://chrome.google.com/webstore/detail/editthiscookie/fngmhnnpilhplaeedifhccceomclgfbg\n
-    0. Back\n
+    Once you have the cookie, you can login to your account using this application.\n
     """)
-    while True:
-        choice = input("Enter your choice: ")
-        if choice == "0":
-            clear()
-            display_main_menu()
-            break
-        else:
-            clear()
-            print("Invalid choice")
-            continue
+
+    input("\nPress enter to return to the main menu.")
+    display_main_menu()
 
 
 def run():
+    clear()
     print("Welcome to the EIS Grade Notifier")
     display_main_menu()
 
