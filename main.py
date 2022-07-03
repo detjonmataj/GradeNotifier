@@ -2,6 +2,7 @@ import os
 import time
 import requests
 from bs4 import BeautifulSoup
+import threading
 
 application_name: str = "EIS Grade Notifier"
 student_name: str = ""
@@ -303,10 +304,26 @@ def display_help():
     display_main_menu()
 
 
-def run():
+def user_interface():
     clear()
     print("Welcome to the EIS Grade Notifier")
     display_main_menu()
+
+
+def check_for_updates():
+    pass
+
+
+def background_tasks():
+    pass
+
+
+def run():
+    clear()
+    user_interface_thread = threading.Thread(target=user_interface)
+    background_thread = threading.Thread(target=background_tasks)
+    user_interface_thread.start()
+    background_thread.start()
 
 
 def main():
