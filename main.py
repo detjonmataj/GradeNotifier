@@ -381,7 +381,7 @@ def get_changes(old_version: list, new_version: list):
             if assignment["Grade"] != new_version[i]["assignments"][j]["Grade"]:
                 course_changes['grades_changed'] = {
                     'assignment_name': assignment['Name'],
-                    'old_grade': assignment['grade'],
+                    'old_grade': assignment['Grade'],
                     'new_grade': new_version[i]["assignments"][j]["Grade"],
                 }
             # Check if the assigment class average has changed
