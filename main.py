@@ -18,6 +18,7 @@ logged_in: bool = False
 session = None
 _course_data: list = []
 want_to_exit: bool = False
+update_timeout: int = 300  # 5 minutes timeout to refresh the grades
 
 
 # Display about
@@ -444,6 +445,7 @@ def check_for_updates():
                     for message in messages:
                         send_notification(message['title'], message['message'])
                     _course_data = new_course_data
+        time.sleep(update_timeout)
     return
 
 
