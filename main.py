@@ -393,6 +393,7 @@ def send_notification(title: str, message: str):
             app_icon="icon.ico",
             timeout=5,
         )
+        time.sleep(5)
 
     if mobile_notification:
         pass
