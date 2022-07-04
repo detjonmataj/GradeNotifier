@@ -3,6 +3,7 @@ import time
 import requests
 from bs4 import BeautifulSoup
 import threading
+from threading import Event
 from plyer import notification
 
 application_name: str = "EIS Grade Notifier"
@@ -15,9 +16,11 @@ remember: bool = False
 mobile_notification: bool = False
 desktop_notification: bool = True
 logged_in: bool = False
-session = None
+session: requests.Session = requests.Session()
 _course_data: list = []
 want_to_exit: bool = False
+logged_out: bool = True
+exit_event = Event()
 update_timeout: int = 300  # 5 minutes timeout to refresh the grades
 
 
@@ -65,6 +68,7 @@ def display_main_menu():
         elif choice == "0":
             print("Goodbye")
             want_to_exit = True
+            exit_event.set()
             break
         else:
             print("Invalid choice")
@@ -227,8 +231,11 @@ def view_grades():
 
 
 def logout():
-    global logged_in
+    global logged_in, session, logged_out
     logged_in = False
+    logged_out = True
+    if session:
+        session.close()
     print("Logout")
     clear()
     display_main_menu()
@@ -288,7 +295,7 @@ def dashboard():
 
 
 def login():
-    global logged_in
+    global logged_in, logged_out
     print("Login to your account")
     print("If you don't know where to get your cookie, please go back and check help section:")
     if input("Do you have a cookie? (y/n): ") == "y":
@@ -298,7 +305,10 @@ def login():
             clear()
             print("Login successful")
             logged_in = True
+            logged_out = False
             time.sleep(1)
+            background_thread = threading.Thread(target=background_tasks)
+            background_thread.start()
             clear()
             dashboard()
         else:
@@ -318,6 +328,8 @@ def create_session(cookie: str):
     global student_name
     global student_honorific
     global session
+    if session:
+        session.close()
     session = requests.Session()
     session.cookies.set("PHPSESSID", cookie, domain="eis.epoka.edu.al")
     response = get_response(grade_url)
@@ -432,21 +444,27 @@ def get_changes_message(changes: list) -> list:
 
 
 def check_for_updates():
-    global session, _course_data, want_to_exit
-    while not want_to_exit:
-        if logged_in and session:
-            if len(_course_data) == 0:
-                _course_data = get_course_data()
-            else:
-                new_course_data = get_course_data()
-                has_changes, changes = get_changes(_course_data, new_course_data)
-                if has_changes:
-                    messages = get_changes_message(changes)
-                    for message in messages:
-                        send_notification(message['title'], message['message'])
-                    _course_data = new_course_data
-        time.sleep(update_timeout)
-    return
+    global session, _course_data, want_to_exit, exit_event, logged_in, logged_out
+    while not want_to_exit and logged_in and not logged_out and session is not None:
+        if exit_event.is_set():
+            exit_event = Event()
+
+        if len(_course_data) == 0:
+            _course_data = get_course_data()
+        else:
+            new_course_data = get_course_data()
+            has_changes, changes = get_changes(_course_data, new_course_data)
+            if has_changes:
+                messages = get_changes_message(changes)
+                for message in messages:
+                    send_notification(message['title'], message['message'])
+                _course_data = new_course_data
+        exit_event.wait(update_timeout)
+    else:
+        exit_event.set()
+        if not logged_out and session is None:
+            logout()
+        return
 
 
 def background_tasks():
@@ -458,9 +476,6 @@ def run():
     clear()
     user_interface_thread = threading.Thread(target=user_interface)
     user_interface_thread.start()
-
-    background_thread = threading.Thread(target=background_tasks)
-    background_thread.start()
 
 
 def main():
