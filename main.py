@@ -231,9 +231,10 @@ def view_grades():
 
 
 def logout():
-    global logged_in, session, logged_out
+    global logged_in, session, logged_out, _course_data
     logged_in = False
     logged_out = True
+    _course_data = []
     if session:
         session.close()
     print("Logout")
@@ -242,7 +243,7 @@ def logout():
 
 
 def refresh():
-    pass
+    update_course_data()
 
 
 def dashboard_menu():
@@ -368,34 +369,47 @@ def user_interface():
 
 def get_changes(old_version: list, new_version: list):
     changes = []
-    for i, course in enumerate(old_version):
+    for i, old_version_course in enumerate(old_version):
         course_changes = {
-            'course_name': course['course_name'],
+            'course_name': old_version_course['course_name'],
+            'assignment_changes': {}
         }
-        if len(course["assignments"]) != len(new_version[i]["assignments"]):
+        if len(old_version_course["assignments"]) != len(new_version[i]["assignments"]):
             course_changes['new_assignments'] = [assignment for assignment in new_version[i]["assignments"]
-                                                 if assignment not in course["assignments"]]
-        # Check if any of the assignments' data has changed
-        for j, assignment in enumerate(course["assignments"]):
+                                                 if assignment["Name"] not in [a["Name"]
+                                                                               for a in
+                                                                               old_version_course["assignments"]]]
+        # Check if any of the old assignments' data has changed
+        for j, old_version_assignment in enumerate(old_version_course["assignments"]):
             # Check if the assigment grade has changed
-            if assignment["Grade"] != new_version[i]["assignments"][j]["Grade"]:
-                course_changes['grades_changed'] = {
-                    'assignment_name': assignment['Name'],
-                    'old_grade': assignment['Grade'],
-                    'new_grade': new_version[i]["assignments"][j]["Grade"],
+            if old_version_assignment["Grade"] != new_version[i]["assignments"][j]["Grade"]:
+                course_changes['assignment_changes'][old_version_assignment["Name"]] = {
+                    'grades_changed': {
+                        'old_grade': old_version_assignment['Grade'],
+                        'new_grade': new_version[i]["assignments"][j]["Grade"]
+                    },
                 }
-            # Check if the assigment class average has changed
-            if assignment["Class Average"] != new_version[i]["assignments"][j]["Class Average"]:
-                course_changes['class_average_changed'] = {
-                    'assignment_name': assignment['Name'],
-                    'old_class_average': assignment["Class Average"],
-                    'new_class_average': new_version[i]["assignments"][j]["Class Average"]
-                }
+            else:
+                # Check if the assigment class average has changed
+                # It is considered a change if previous class average was - and now is not
+                # The professor may publish grade of another student and the class average changes.
+                # Why would you want to receive notification when the class average changes?
+                # The reason why I'm checking if the class average was - and when it changes to a number
+                # (at least one student received their grade) and you will probably receive your grade soon.
+                # P.s '-' indicates that the class average is not available yet so no student received their grade
+                if old_version_assignment["Class Average"] == '-' and \
+                        new_version[i]["assignments"][j]["Class Average"] != '-':
+                    course_changes['assignment_changes'][old_version_assignment["Name"]] = {
+                        'class_average_changed': {
+                            'old_class_average': old_version_assignment['Class Average'],
+                            'new_class_average': new_version[i]["assignments"][j]["Class Average"]
+                        },
+                    }
 
-        if len(course_changes.keys()) > 1:
+        if len(course_changes.keys()) > 2 or len(course_changes['assignment_changes'].keys()) > 0:
             changes.append(course_changes)
 
-    return len(changes) > 0, changes
+    return changes
 
 
 def send_notification(title: str, message: str):
@@ -416,49 +430,114 @@ def get_changes_message(changes: list) -> list:
     messages = []
     for change in changes:
         if 'new_assignments' in change:
-            messages.append({
-                'title': f"New assignments in {change['course_name']}",
-                'message': f"Looks like your teacher opened a new assigment submission for"
-                           f" {change['course_name']} course.\n"
-            })
-        if 'class_average_changed' in change and change['class_average_changed']['new_class_average'] == '-' \
-                and change['class_average_changed']['new_class_average'] != '-':
-            if messages[-1]['title'] != f"New assignments in {change['course_name']}":
-                messages.pop()
-            messages.append({
-                'title': f"Class average changed in {change['course_name']}",
-                'message': f"Looks like your teacher is publishing grades for assigment"
-                           f" {change['class_average_changed']['assignment_name']} of {change['course_name']} course.\n"
-            })
-        if 'grades_changed' in change:
-            if messages[-1]['title'] != f"New assignments in {change['course_name']}" or \
-                    messages[-1]['title'] != f"Class average changed in {change['course_name']}":
-                messages.pop()
-            messages.append({
-                'title': f"Grades changed in {change['course_name']}",
-                'message': f"Looks like your teacher has changed your grade for assigment"
-                           f" {change['grades_changed']['assignment_name']} of {change['course_name']} course.\n"
-            })
+            if len(change['new_assignments']) == 1:
+                # The professor added a new assigment and published the grade
+                # This means the grade is not -
+                if change['new_assignments'][0]['Grade'] != '-':
+                    messages.append(
+                        {
+                            'title': f"{change['course_name']} - New Assignment",
+                            'message': f"Looks like the professor added a new assignment and published your grade "
+                                       f"for assigment {change['new_assignments'][0]['Name']} "
+                                       f"of the course {change['course_name']}."
+                                       f"Yor grade is {change['new_assignments'][0]['Grade']}."
+                        }
+                    )
+                elif change['new_assignments'][0]['Class Average'] != '-' \
+                        and change['new_assignments'][0]['Grade'] == '-':
+                    messages.append(
+                        {
+                            'title': f"{change['course_name']} - New Assignment",
+                            'message': f"Looks like the professor added a new assignment and he may publish your grade "
+                                       f"soon for assigment {change['new_assignments'][0]['Name']} "
+                                       f"of the course {change['course_name']}."
+                        }
+                    )
+                else:
+                    messages.append(
+                        {
+                            'title': f"{change['course_name']} - New Assignment",
+                            'message': f"Looks like the professor added a new assignment for assigment "
+                                       f"{change['new_assignments'][0]['Name']} "
+                                       f"of the course {change['course_name']}."
+                        }
+                    )
+
+            elif len(change['new_assignments']) > 1:
+                word = 'assignments' if len(change['new_assignments']) > 1 else 'assignment'
+                # List of new assignments that the professor is publishing grades
+                # The assigment Class Average is != - and the Grade is -
+                assignments_publishing_grades = [a for a in change['new_assignments'] if
+                                                 a['Class Average'] != '-' and a['Grade'] == '-']
+                # Assignments with published grades
+                assignments_with_grades = [a for a in change['new_assignments']
+                                           if a['Grade'] != '-' and a['Class Average'] != '-']
+                # Message to be sent to the user when there are new assignments but no grade was published yet
+                if len(assignments_publishing_grades) == 0 and len(assignments_with_grades) == 0:
+                    messages.append({
+                        'title': f"New {word} in {change['course_name']}",
+                        'message': f"Looks like your professor created a new {word} "
+                                   f"for the course {change['course_name']}."
+                    })
+                elif len(assignments_publishing_grades) > 0:
+                    # Message to be sent to the user when there are new assignments and the professor is publishing
+                    # grades for the other students and didn't publish your grade/s yet
+                    messages.append({
+                        'title': f"New {word} in {change['course_name']}",
+                        'message': f"Looks like your professor created a new {word} "
+                                   f"for the course {change['course_name']}."
+                                   f"He is publishing grades for the {word}: "
+                                   f"{', '.join([a['Name'] for a in assignments_publishing_grades])}"[:-1] + '.'
+                    })
+                # elif len(assignments_with_grades) > 0:
+                else:
+                    # Message to be sent to the user when there are new assignments
+                    # and the professor has published his grade/s
+                    messages.append({
+                        'title': f"New {word} in {change['course_name']}",
+                        'message': f"Looks like your professor created a new {word} "
+                                   f"for the course {change['course_name']} and published your grade/s."
+                        # f"He published your grades for the {word}:\n"
+                        # f"{', '.join([a['Name'] for a in assignments_with_grades])}"[:-1] + '.'
+                    })
+        if len(change['assignment_changes'].keys()) > 0:
+            for assignment_name, changes in change['assignment_changes'].items():
+                if 'grades_changed' in changes:
+                    if changes['grades_changed']['old_grade'] == '-':
+                        messages.append({
+                            'title': f"Publishes in {change['course_name']} "
+                                     f" course.",
+                            'message': f"Looks like your professor published your grade for the assigment"
+                                       f"{assignment_name} in {change['course_name']}."
+                                       f"Your grade is {changes['grades_changed']['new_grade']}."
+                        })
+                    else:
+                        messages.append({
+                            'title': f"Updates in {change['course_name']} course",
+                            'message': f"Looks like your professor changed your grade for the assigment "
+                                       f"{assignment_name} in {change['course_name']}."
+                                       f"Your grade was {changes['grades_changed']['old_grade']} "
+                                       f"and updated grade is {changes['grades_changed']['new_grade']}."
+                        })
+                else:
+                    if 'class_average_changed' in changes:
+                        messages.append({
+                            'title': f"Updates in {change['course_name']}",
+                            'message': f"Looks like your professor may publish soon your grade for the assigment"
+                                       f"{assignment_name} in {change['course_name']} course."
+                        })
 
     return messages
 
 
-def check_for_updates():
-    global session, _course_data, want_to_exit, exit_event, logged_in, logged_out
+def check_for_updates_event():
+    global session, want_to_exit, exit_event, logged_in, logged_out
     while not want_to_exit and logged_in and not logged_out and session is not None:
         if exit_event.is_set():
             exit_event = Event()
 
-        if len(_course_data) == 0:
-            _course_data = get_course_data()
-        else:
-            new_course_data = get_course_data()
-            has_changes, changes = get_changes(_course_data, new_course_data)
-            if has_changes:
-                messages = get_changes_message(changes)
-                for message in messages:
-                    send_notification(message['title'], message['message'])
-                _course_data = new_course_data
+        update_course_data()
+
         exit_event.wait(update_timeout)
     else:
         exit_event.set()
@@ -467,8 +546,22 @@ def check_for_updates():
         return
 
 
+def update_course_data():
+    global _course_data
+    if len(_course_data) == 0:
+        _course_data = get_course_data()
+    else:
+        new_course_data = get_course_data()
+        changes = get_changes(_course_data, new_course_data)
+        if len(changes) > 0:
+            messages = get_changes_message(changes)
+            for message in messages:
+                send_notification(message['title'], message['message'])
+            _course_data = new_course_data
+
+
 def background_tasks():
-    threading.Thread(target=check_for_updates).start()
+    threading.Thread(target=check_for_updates_event).start()
     return
 
 
