@@ -113,13 +113,14 @@ def get_course_data():
                 assigment[table_header.text.strip().replace("\n", "")] = row.find_all('td')[j].text.strip() \
                     .replace("\n", "").replace(" %", "%")
             assignments.append(assigment)
-        course_notes = list(
-            map(lambda x: x.strip(), course_soup.find('div', {'class': 'note'})
-                .text.strip().replace("\n", "").split("|")))
 
-        course_notes = list(map(lambda x: x.split(":"), course_notes))
+        course_notes = list(map(lambda z: z.strip().replace("\n", "").split(":"), (
+            "|".join(list(map(lambda x: x.text.strip().replace("\n", ""),
+                              course_soup.find_all('div', {'class': 'note'}))))).split("|")))
+
         course_notes = dict(map(lambda x: (x[0].strip().replace("\n", ""), x[1].strip().replace("\n", "")),
                                 course_notes))
+
         course_completed = course_soup.find('input', {'class': 'knob'})['value'] + "%"
         course_notes['Completed'] = course_completed
 
