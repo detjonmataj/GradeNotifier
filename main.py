@@ -114,7 +114,7 @@ def get_course_data():
                     .replace("\n", "").replace(" %", "%")
             assignments.append(assigment)
         course_notes = list(
-            map(lambda x: x.strip(), course_soup.find('div', {'class': 'note'}).find('p')
+            map(lambda x: x.strip(), course_soup.find('div', {'class': 'note'})
                 .text.strip().replace("\n", "").split("|")))
 
         course_notes = list(map(lambda x: x.split(":"), course_notes))
