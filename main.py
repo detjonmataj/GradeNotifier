@@ -150,7 +150,7 @@ def display_course_data(course_data):
         print("\t" + "-" * total_size)
 
     print("\n\n\tOverall course results:")
-    max_key_size += 1
+    max_key_size = max(map(lambda z: len(z), course_data['course_notes'].keys())) + 1
     print("\t" + "-" * total_size)
     for key, value in course_data['course_notes'].items():
         print(f"\t{key:<{max_key_size}}: {value}")
