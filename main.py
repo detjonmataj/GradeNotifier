@@ -120,11 +120,14 @@ def get_course_data():
         course_notes = list(map(lambda x: x.split(":"), course_notes))
         course_notes = dict(map(lambda x: (x[0].strip().replace("\n", ""), x[1].strip().replace("\n", "")),
                                 course_notes))
+        course_completed = course_soup.find('input', {'class': 'knob'})['value'] + "%"
+        course_notes['Completed'] = course_completed
+
         courses_data.append(
             {
                 "course_name": course_name,
                 "assignments": assignments,
-                "course_notes": course_notes
+                "course_notes": course_notes,
             }
         )
 
